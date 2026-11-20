@@ -190,7 +190,7 @@ final class Yt {
         SearchQueryHandler h = S.getSearchQHFactory().fromQuery(q.trim(),
             "channels".equals(mode) ? Collections.singletonList(YoutubeSearchQueryHandlerFactory.CHANNELS) :
                 ("videos".equals(mode) || "long".equals(mode)) ? Collections.singletonList(YoutubeSearchQueryHandlerFactory.VIDEOS) : Collections.emptyList(), "");
-        SearchInfo si = SearchInfo.getInfo(S, h);
+        SearchInfo si = attempt(() -> SearchInfo.getInfo(S, h));
         JSONArray a = searchItems(si.getRelatedItems(), mode);
         Page next = si.getNextPage();
         if (a.length() == 0 && next == null && !si.getErrors().isEmpty())
@@ -203,6 +203,21 @@ final class Yt {
     static JSONObject shorts(String channel, String token) throws Exception {
         if (!token.isEmpty()) return more(token, "short");
         if (!channel.isEmpty()) return shortTab(channel);
+
+        // Try a live Shorts search first instead of showing only a fixed pair of channels.
+        // Extractor metadata is still the source of truth: ordinary videos are filtered out.
+        try {
+            SearchQueryHandler h = S.getSearchQHFactory().fromQuery("#shorts",
+                Collections.singletonList(YoutubeSearchQueryHandlerFactory.VIDEOS), "");
+            SearchInfo si = attempt(() -> SearchInfo.getInfo(S, h));
+            JSONArray found = videos(si.getRelatedItems(), "short");
+            if (found.length() > 0) {
+                Page next = si.getNextPage();
+                return list(found, next != null ? keep("shortSearch", h, next) : null);
+            }
+        } catch (Exception ignored) { }
+
+        // Fallback for extractor versions / regions where the Shorts search has no usable results.
         JSONArray items = new JSONArray();
         String next = null;
         Exception error = null;
@@ -210,14 +225,10 @@ final class Yt {
             try {
                 JSONObject batch = shortTab(id);
                 addAll(items, batch.getJSONArray("items"));
-                if (next == null) {
-                    next = batch.optString("nextPageToken", null);
-                }
+                if (next == null) next = batch.optString("nextPageToken", null);
             } catch (Exception e) { error = e; }
         }
-        if (items.length() == 0 && error != null) {
-            throw error;
-        }
+        if (items.length() == 0 && error != null) throw error;
         return list(items, next);
     }
 
@@ -243,6 +254,10 @@ final class Yt {
             case "search": {
                 ListExtractor.InfoItemsPage<InfoItem> p = SearchInfo.getMoreItems(S, (SearchQueryHandler) c[1], pg);
                 return list(searchItems(p.getItems(), mode), p.getNextPage() != null ? keep(kind, c[1], p.getNextPage()) : null);
+            }
+            case "shortSearch": {
+                ListExtractor.InfoItemsPage<InfoItem> p = SearchInfo.getMoreItems(S, (SearchQueryHandler) c[1], pg);
+                return list(videos(p.getItems(), "short"), p.getNextPage() != null ? keep(kind, c[1], p.getNextPage()) : null);
             }
             case "channelShorts":
             case "channel": {
@@ -347,6 +362,20 @@ final class Yt {
         Pick p = pick(i, height <= 0 ? 720 : height);
         if (p == null) throw new IOException("Không lấy được luồng phát trực tiếp cho video này.");
         return new String[]{p.video, p.audio == null ? "" : p.audio, p.hls ? "hls" : "progressive", userAgent(p.video)};
+    }
+
+    /** Direct progressive stream for an explicit user download. Split video/audio and HLS are not offered here. */
+    static String[] downloadInfo(String id, int height) throws Exception {
+        StreamInfo i = info(id);
+        List<VideoStream> streams = usable(i.getVideoStreams());
+        if (streams.isEmpty()) throw new IOException("Video này không có luồng tải trực tiếp tương thích. Thử video khác.");
+        VideoStream best = null;
+        int max = height <= 0 ? 720 : height;
+        for (VideoStream v : streams) if (best == null || score(v, max) > score(best, max)) best = v;
+        if (best == null) throw new IOException("Không tìm thấy luồng tải video phù hợp.");
+        String ext = best.getFormat() == MediaFormat.MPEG_4 ? "mp4" : "webm";
+        String mime = "mp4".equals(ext) ? "video/mp4" : "video/webm";
+        return new String[]{best.getContent(), i.getName(), ext, userAgent(best.getContent()), mime};
     }
 
     private static String userAgent(String url) {

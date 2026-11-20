@@ -202,6 +202,7 @@ public final class MainActivity extends Activity {
             case "logout":token="";tokenUntil=0;YtWeb.logout();return new JSONObject();
             case "update":return checkUpdate();
             case "download":return download(a);
+            case "downloadVideo":return downloadVideo(a);
             case "popular":return Yt.home(a.optString("pageToken"));
             case "search":return Yt.search(a.optString("q"),a.optString("duration"),a.optString("pageToken"));
             case "video":return Yt.video(a.getString("id"));
@@ -359,6 +360,33 @@ public final class MainActivity extends Activity {
         }finally{c.disconnect();}
     }
     static long parseVersion(String v){try{String[] p=v.split("\\.");if(p.length!=3)return -1;return Long.parseLong(p[0])*100000+Long.parseLong(p[1])*1000+Long.parseLong(p[2]);}catch(Exception e){return -1;}}
+    private JSONObject downloadVideo(JSONObject a)throws Exception{
+        if(Build.VERSION.SDK_INT<29 && checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){
+            runOnUiThread(()->requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},401));
+            throw new IOException("Android 8/9 cần quyền lưu tệp. Cho phép quyền rồi nhấn tải lại.");
+        }
+        String id=a.optString("id","");
+        if(!id.matches("[\\w-]{11}"))throw new IOException("Video không hợp lệ.");
+        int height=a.optInt("height",720);
+        String[] info=Yt.downloadInfo(id,height);
+        Uri uri=Uri.parse(info[0]);
+        String host=uri.getHost();
+        if(!"https".equals(uri.getScheme())||host==null||!(host.equals("googlevideo.com")||host.endsWith(".googlevideo.com")))
+            throw new IOException("Nguồn tải video không hợp lệ.");
+        String title=info[1]==null?"INY-video":info[1];
+        title=title.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]","_").trim();
+        if(title.isEmpty())title="INY-video";
+        if(title.length()>100)title=title.substring(0,100).trim();
+        String filename=title+"-"+System.currentTimeMillis()+"."+info[2];
+        DownloadManager.Request req=new DownloadManager.Request(uri)
+            .setTitle(title).setDescription("Tải video từ INY — chỉ dùng với nội dung bạn có quyền tải")
+            .setMimeType(info[4]).addRequestHeader("User-Agent",info[3])
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,filename);
+        long downloadId=((DownloadManager)getSystemService(DOWNLOAD_SERVICE)).enqueue(req);
+        return new JSONObject().put("downloadId",downloadId).put("filename",filename).put("height",height);
+    }
+
     private JSONObject download(JSONObject a)throws Exception{
         if(Build.VERSION.SDK_INT<29 && checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){
             runOnUiThread(()->requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},401));
@@ -619,6 +647,8 @@ public final class MainActivity extends Activity {
     }
     private void openExternal(String url){
         Uri u=Uri.parse(url);if(!"https".equals(u.getScheme())&& !"http".equals(u.getScheme()))return;
+        String host=u.getHost();if(host==null)return;host=host.toLowerCase(Locale.ROOT);
+        if(host.equals("youtube.com")||host.endsWith(".youtube.com")||host.equals("youtu.be")||host.equals("youtube-nocookie.com")||host.endsWith(".youtube-nocookie.com"))return;
         try{startActivity(new Intent(Intent.ACTION_VIEW,u).addCategory(Intent.CATEGORY_BROWSABLE));}catch(ActivityNotFoundException ignored){}
     }
     private void hideFullscreen(){

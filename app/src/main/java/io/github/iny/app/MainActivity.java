@@ -13,6 +13,9 @@ import android.provider.OpenableColumns;
 import android.view.*;
 import android.webkit.*;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.graphics.drawable.GradientDrawable;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
@@ -54,6 +57,8 @@ public final class MainActivity extends Activity {
     private FrameLayout.LayoutParams playerLp;
     private String playingId;
     private boolean fullscreen, portraitShort;
+    private FrameLayout shortOverlay;
+    private TextView ovChannel, ovTitle, ovSub, ovLike, ovSave;
     private long playSequence;
     private int quality = 720;
     private JSONArray qualityOptions = new JSONArray();
@@ -148,6 +153,8 @@ public final class MainActivity extends Activity {
                 if ("play".equals(op)) { play(a,id,reply); return; }
                 if ("stop".equals(op)) { stopPlayer(); respond(reply,id,new JSONObject(),null); return; }
                 if ("place".equals(op)) { layoutPlayer(a.optJSONObject("rect")); respond(reply,id,new JSONObject(),null); return; }
+                if ("immersive".equals(op)) { final boolean on=a.optBoolean("on"); runOnUiThread(()->setImmersive(on)); respond(reply,id,new JSONObject(),null); return; }
+                if ("shortInfo".equals(op)) { runOnUiThread(()->updateShortInfo(a)); respond(reply,id,new JSONObject(),null); return; }
                 if ("speed".equals(op)) { setSpeed((float)a.optDouble("value",1)); respond(reply,id,new JSONObject(),null); return; }
                 workers.execute(()->{
                     try{respond(reply,id,dispatch(op,a),null);}catch(Exception e){respond(reply,id,null,safeMessage(e));}
@@ -279,6 +286,7 @@ public final class MainActivity extends Activity {
             if(e instanceof ApiException){
                 int code=((ApiException)e).getStatusCode();
                 message=code==10 ? "Cấu hình Google OAuth chưa khớp. Kiểm tra package và SHA-1 trong Cài đặt." :
+                    code==8 ? "Google từ chối (mã 8): SHA-1 của bản cài này chưa được đăng ký trong Google Cloud. Mở Bạn → Cài đặt, sao chép SHA-1 và thêm vào OAuth client Android." :
                     code==16 || code==12501 ? "Bạn đã hủy cấp quyền Google." : "Google không cấp quyền (mã " + code + "). Kiểm tra ứng dụng OAuth và tài khoản thử nghiệm.";
             } else message=safeMessage(e);
             respond(authReply,authId,null,message);
@@ -371,6 +379,7 @@ public final class MainActivity extends Activity {
         final boolean shortMode=a.optBoolean("short");
         final JSONObject rect=a.optJSONObject("rect");
         final JSONArray options=a.optJSONArray("qualities");
+        final JSONObject info=a.optJSONObject("info");
         setSpeed((float)a.optDouble("speed",playbackSpeed));
         workers.execute(()->{
             try{
@@ -380,6 +389,7 @@ public final class MainActivity extends Activity {
                     qualityOptions=options==null?new JSONArray():options;
                     quality=height;portraitShort=shortMode;
                     startPlayer(id,streams,rect);
+                    if(shortMode&&info!=null)updateShortInfo(info);
                     respond(reply,request,new JSONObject(),null);
                 });
             }catch(Exception e){respond(reply,request,null,safeMessage(e));}
@@ -418,7 +428,8 @@ public final class MainActivity extends Activity {
             @Override public boolean dispatchTouchEvent(android.view.MotionEvent e){
                 if(!portraitShort||fullscreen)return super.dispatchTouchEvent(e);
                 int action=e.getActionMasked();
-                if(action==MotionEvent.ACTION_DOWN){x=e.getX();y=e.getY();swiped=false;canSwipe=y<getHeight()-100*getResources().getDisplayMetrics().density;}
+                if(action==MotionEvent.ACTION_DOWN){x=e.getX();y=e.getY();swiped=false;canSwipe=true;}
+                if(action==MotionEvent.ACTION_UP&&!swiped&&Math.abs(e.getX()-x)<12*getResources().getDisplayMetrics().density&&Math.abs(e.getY()-y)<12*getResources().getDisplayMetrics().density&&player!=null){player.setPlayWhenReady(!player.getPlayWhenReady());return true;}
                 if(!swiped&&canSwipe&&action==MotionEvent.ACTION_MOVE){
                     float dy=e.getY()-y;
                     if(Math.abs(dy)>64*getResources().getDisplayMetrics().density&&Math.abs(dy)>Math.abs(e.getX()-x)*1.4f){
@@ -426,7 +437,8 @@ public final class MainActivity extends Activity {
                         swiped=true;event("shortSwipe",new JSONObject(Collections.singletonMap("direction",dy<0?1:-1)));
                     }
                 }
-                return swiped||super.dispatchTouchEvent(e);
+                if(swiped)return true;
+                return action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_DOWN||action==MotionEvent.ACTION_MOVE?true:super.dispatchTouchEvent(e);
             }
         };
         playerView.setBackgroundColor(Color.BLACK);
@@ -437,9 +449,11 @@ public final class MainActivity extends Activity {
         playerView.setVisibility(View.GONE);
         playerLp=new FrameLayout.LayoutParams(-1,0);
         root.addView(playerView,playerLp);
+        buildShortOverlay();
     }
     private void startPlayer(String id,String[] st,JSONObject rect){
         ensurePlayer();
+        playerView.setUseController(!portraitShort);
         layoutPlayer(rect);
         playerView.setVisibility(View.VISIBLE);
         DefaultHttpDataSource.Factory http=new DefaultHttpDataSource.Factory().setUserAgent(st[3]).setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(30000);
@@ -454,6 +468,7 @@ public final class MainActivity extends Activity {
         long pos=same?player.getCurrentPosition():0;
         boolean resume=!same||player.getPlayWhenReady();
         playingId=id;
+        syncOverlay();
         player.setMediaSource(src,pos);
         player.prepare();
         player.setRepeatMode(portraitShort?Player.REPEAT_MODE_ONE:Player.REPEAT_MODE_OFF);
@@ -462,9 +477,10 @@ public final class MainActivity extends Activity {
     }
     private void layoutPlayer(JSONObject r){
         if(playerView==null||fullscreen||r==null)return;
-        if(r.optDouble("w",0)<=0 || r.optDouble("h",0)<=0){playerView.setVisibility(View.INVISIBLE);return;}
+        if(r.optDouble("w",0)<=0 || r.optDouble("h",0)<=0){playerView.setVisibility(View.INVISIBLE);syncOverlay();return;}
         if(playingId!=null)playerView.setVisibility(View.VISIBLE);
         float d=getResources().getDisplayMetrics().density;
+        syncOverlay();
         playerLp.gravity=Gravity.TOP|Gravity.START;
         playerLp.leftMargin=Math.round((float)r.optDouble("x",0)*d);
         playerLp.topMargin=Math.round((float)r.optDouble("y",0)*d);
@@ -484,12 +500,69 @@ public final class MainActivity extends Activity {
         }else getWindow().getDecorView().setSystemUiVisibility(fs?(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_STABLE):View.SYSTEM_UI_FLAG_VISIBLE);
         if(!fs)event("relayout",new JSONObject());
     }
+    private int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);}
+    private TextView ovButton(String icon,String label,String act,float size){
+        TextView t=new TextView(this);t.setText(icon+"\n"+label);t.setTextColor(Color.WHITE);t.setTextSize(size);t.setGravity(Gravity.CENTER);
+        t.setShadowLayer(6,0,2,Color.BLACK);t.setPadding(dp(6),dp(8),dp(6),dp(8));t.setTypeface(null,android.graphics.Typeface.BOLD);
+        t.setOnClickListener(v->{if(web!=null)web.evaluateJavascript("window.shortAct&&shortAct('"+act+"')",null);});return t;
+    }
+    private void buildShortOverlay(){
+        shortOverlay=new FrameLayout(this);shortOverlay.setVisibility(View.GONE);
+        View shade=new View(this);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0,0xCC000000}));
+        shortOverlay.addView(shade,new FrameLayout.LayoutParams(-1,dp(260),Gravity.BOTTOM));
+        TextView back=new TextView(this);back.setText("‹");back.setTextColor(Color.WHITE);back.setTextSize(30);back.setGravity(Gravity.CENTER);
+        GradientDrawable bg=new GradientDrawable();bg.setShape(GradientDrawable.OVAL);bg.setColor(0x66000000);back.setBackground(bg);
+        back.setOnClickListener(v->{if(web!=null)web.evaluateJavascript("window.shortAct&&shortAct('back')",null);});
+        FrameLayout.LayoutParams bl=new FrameLayout.LayoutParams(dp(42),dp(42),Gravity.TOP|Gravity.START);bl.setMargins(dp(10),dp(10),0,0);shortOverlay.addView(back,bl);
+        LinearLayout col=new LinearLayout(this);col.setOrientation(LinearLayout.VERTICAL);col.setGravity(Gravity.CENTER_HORIZONTAL);
+        ovLike=ovButton("♥","Thích","like",12);TextView cm=ovButton("💬","Bình luận","comments",12);ovSave=ovButton("🔖","Lưu","save",12);
+        TextView sh=ovButton("↗","Chia sẻ","share",12);TextView st=ovButton("⚙","Cài đặt","settings",12);
+        st.setOnClickListener(v->playbackSettings());
+        for(TextView t:new TextView[]{ovLike,cm,ovSave,sh,st}){((TextView)t).setTextSize(12);col.addView(t,new LinearLayout.LayoutParams(dp(74),-2));}
+        FrameLayout.LayoutParams cl=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.END);cl.setMargins(0,0,dp(4),dp(28));shortOverlay.addView(col,cl);
+        LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        ovChannel=new TextView(this);ovChannel.setTextColor(Color.WHITE);ovChannel.setTextSize(15);ovChannel.setTypeface(null,android.graphics.Typeface.BOLD);ovChannel.setSingleLine(true);ovChannel.setEllipsize(android.text.TextUtils.TruncateAt.END);ovChannel.setShadowLayer(6,0,2,Color.BLACK);ovChannel.setMaxWidth(dp(170));
+        ovChannel.setOnClickListener(v->{if(web!=null)web.evaluateJavascript("window.shortAct&&shortAct('channel')",null);});
+        ovSub=new TextView(this);ovSub.setText("Đăng ký");ovSub.setTextColor(Color.BLACK);ovSub.setTextSize(13);ovSub.setTypeface(null,android.graphics.Typeface.BOLD);ovSub.setPadding(dp(14),dp(7),dp(14),dp(7));
+        GradientDrawable pill=new GradientDrawable();pill.setCornerRadius(dp(20));pill.setColor(Color.WHITE);ovSub.setBackground(pill);
+        ovSub.setOnClickListener(v->{if(web!=null)web.evaluateJavascript("window.shortAct&&shortAct('subscribe')",null);});
+        row.addView(ovChannel);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-2,-2);sp.setMargins(dp(10),0,0,0);row.addView(ovSub,sp);
+        ovTitle=new TextView(this);ovTitle.setTextColor(Color.WHITE);ovTitle.setTextSize(14);ovTitle.setMaxLines(2);ovTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);ovTitle.setShadowLayer(6,0,2,Color.BLACK);ovTitle.setPadding(0,dp(8),0,0);
+        info.addView(row);info.addView(ovTitle);
+        FrameLayout.LayoutParams il=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM|Gravity.START);il.setMargins(dp(14),0,dp(84),dp(28));shortOverlay.addView(info,il);
+        root.addView(shortOverlay,new FrameLayout.LayoutParams(-1,-1));
+    }
+    private void syncOverlay(){
+        if(shortOverlay==null)return;
+        shortOverlay.setVisibility(portraitShort&&playingId!=null&&playerView!=null&&playerView.getVisibility()==View.VISIBLE?View.VISIBLE:View.GONE);
+        if(shortOverlay.getVisibility()==View.VISIBLE)shortOverlay.bringToFront();
+    }
+    private void updateShortInfo(JSONObject i){
+        if(shortOverlay==null)return;
+        if(i.has("channel"))ovChannel.setText(i.optString("channel"));
+        if(i.has("title"))ovTitle.setText(i.optString("title"));
+        if(i.has("likes"))ovLike.setText("♥\n"+i.optString("likes","Thích"));
+        ovLike.setTextColor(i.optBoolean("liked")?0xFFFF4055:Color.WHITE);
+        ovSave.setText("🔖\n"+(i.optBoolean("saved")?"Đã lưu":"Lưu"));
+        boolean sub=i.optBoolean("subscribed");ovSub.setText(sub?"Đã đăng ký":"Đăng ký");
+        ((GradientDrawable)ovSub.getBackground()).setColor(sub?0x66FFFFFF:Color.WHITE);ovSub.setTextColor(sub?Color.WHITE:Color.BLACK);
+        syncOverlay();
+    }
+    @SuppressWarnings("deprecation")
+    private void setImmersive(boolean on){
+        if(Build.VERSION.SDK_INT>=30){
+            WindowInsetsController c=getWindow().getInsetsController();
+            if(c!=null){if(on){c.hide(WindowInsets.Type.systemBars());c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);}else c.show(WindowInsets.Type.systemBars());}
+        }else getWindow().getDecorView().setSystemUiVisibility(on?(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_STABLE):View.SYSTEM_UI_FLAG_VISIBLE);
+    }
     private void stopPlayer(){
         ++playSequence;
         if(fullscreen)setFullscreen(false);
         if(player!=null){player.stop();player.clearMediaItems();}
         if(playerView!=null)playerView.setVisibility(View.GONE);
         playingId=null;
+        if(shortOverlay!=null)shortOverlay.setVisibility(View.GONE);
     }
     private void openExternal(String url){
         Uri u=Uri.parse(url);if(!"https".equals(u.getScheme())&& !"http".equals(u.getScheme()))return;

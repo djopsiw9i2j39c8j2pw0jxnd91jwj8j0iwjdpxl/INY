@@ -501,22 +501,28 @@ public final class MainActivity extends Activity {
         if(!fs)event("relayout",new JSONObject());
     }
     private int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);}
-    private TextView ovButton(String icon,String label,String act,float size){
-        TextView t=new TextView(this);t.setText(icon+"\n"+label);t.setTextColor(Color.WHITE);t.setTextSize(size);t.setGravity(Gravity.CENTER);
+    private void setIcon(TextView t,int res,int color){
+        android.graphics.drawable.Drawable d=getResources().getDrawable(res,getTheme()).mutate();
+        d.setBounds(0,0,dp(28),dp(28));d.setColorFilter(color,android.graphics.PorterDuff.Mode.SRC_IN);
+        t.setCompoundDrawables(null,d,null,null);t.setCompoundDrawablePadding(dp(2));
+    }
+    private TextView ovButton(int icon,String label,String act){
+        TextView t=new TextView(this);t.setText(label);t.setTextColor(Color.WHITE);t.setTextSize(12);t.setGravity(Gravity.CENTER);
         t.setShadowLayer(6,0,2,Color.BLACK);t.setPadding(dp(6),dp(8),dp(6),dp(8));t.setTypeface(null,android.graphics.Typeface.BOLD);
+        setIcon(t,icon,Color.WHITE);
         t.setOnClickListener(v->{if(web!=null)web.evaluateJavascript("window.shortAct&&shortAct('"+act+"')",null);});return t;
     }
     private void buildShortOverlay(){
         shortOverlay=new FrameLayout(this);shortOverlay.setVisibility(View.GONE);
         View shade=new View(this);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0,0xCC000000}));
         shortOverlay.addView(shade,new FrameLayout.LayoutParams(-1,dp(260),Gravity.BOTTOM));
-        TextView back=new TextView(this);back.setText("‹");back.setTextColor(Color.WHITE);back.setTextSize(30);back.setGravity(Gravity.CENTER);
+        android.widget.ImageView back=new android.widget.ImageView(this);back.setImageResource(R.drawable.ic_chevron_left);back.setPadding(dp(7),dp(7),dp(7),dp(7));
         GradientDrawable bg=new GradientDrawable();bg.setShape(GradientDrawable.OVAL);bg.setColor(0x66000000);back.setBackground(bg);
         back.setOnClickListener(v->{if(web!=null)web.evaluateJavascript("window.shortAct&&shortAct('back')",null);});
         FrameLayout.LayoutParams bl=new FrameLayout.LayoutParams(dp(42),dp(42),Gravity.TOP|Gravity.START);bl.setMargins(dp(10),dp(10),0,0);shortOverlay.addView(back,bl);
         LinearLayout col=new LinearLayout(this);col.setOrientation(LinearLayout.VERTICAL);col.setGravity(Gravity.CENTER_HORIZONTAL);
-        ovLike=ovButton("♥","Thích","like",12);TextView cm=ovButton("💬","Bình luận","comments",12);ovSave=ovButton("🔖","Lưu","save",12);
-        TextView sh=ovButton("↗","Chia sẻ","share",12);TextView st=ovButton("⚙","Cài đặt","settings",12);
+        ovLike=ovButton(R.drawable.ic_heart,"Thích","like");TextView cm=ovButton(R.drawable.ic_message,"Bình luận","comments");ovSave=ovButton(R.drawable.ic_bookmark,"Lưu","save");
+        TextView sh=ovButton(R.drawable.ic_share,"Chia sẻ","share");TextView st=ovButton(R.drawable.ic_sliders,"Cài đặt","settings");
         st.setOnClickListener(v->playbackSettings());
         for(TextView t:new TextView[]{ovLike,cm,ovSave,sh,st}){((TextView)t).setTextSize(12);col.addView(t,new LinearLayout.LayoutParams(dp(74),-2));}
         FrameLayout.LayoutParams cl=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.END);cl.setMargins(0,0,dp(4),dp(28));shortOverlay.addView(col,cl);
@@ -542,9 +548,10 @@ public final class MainActivity extends Activity {
         if(shortOverlay==null)return;
         if(i.has("channel"))ovChannel.setText(i.optString("channel"));
         if(i.has("title"))ovTitle.setText(i.optString("title"));
-        if(i.has("likes"))ovLike.setText("♥\n"+i.optString("likes","Thích"));
-        ovLike.setTextColor(i.optBoolean("liked")?0xFFFF4055:Color.WHITE);
-        ovSave.setText("🔖\n"+(i.optBoolean("saved")?"Đã lưu":"Lưu"));
+        if(i.has("likes"))ovLike.setText(i.optString("likes","Thích"));
+        boolean liked=i.optBoolean("liked"),saved=i.optBoolean("saved");
+        setIcon(ovLike,liked?R.drawable.ic_heart_fill:R.drawable.ic_heart,liked?0xFFFF4055:Color.WHITE);ovLike.setTextColor(liked?0xFFFF4055:Color.WHITE);
+        setIcon(ovSave,saved?R.drawable.ic_bookmark_fill:R.drawable.ic_bookmark,Color.WHITE);ovSave.setText(saved?"Đã lưu":"Lưu");
         boolean sub=i.optBoolean("subscribed");ovSub.setText(sub?"Đã đăng ký":"Đăng ký");
         ((GradientDrawable)ovSub.getBackground()).setColor(sub?0x66FFFFFF:Color.WHITE);ovSub.setTextColor(sub?Color.WHITE:Color.BLACK);
         syncOverlay();

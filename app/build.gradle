@@ -1,0 +1,57 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'io.github.iny.app'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'io.github.iny.app'
+        minSdk 26
+        targetSdk 35
+        versionCode 1000003
+        versionName '10.00.03'
+        buildConfigField 'String', 'RELEASES_API', '"https://api.github.com/repos/djopsiw9i2j39c8j2pw0jxnd91jwj8j0iwjdpxl/INY/releases/latest"'
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        release {
+            def ks = System.getenv('INY_KEYSTORE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('INY_STORE_PASSWORD')
+                keyAlias System.getenv('INY_KEY_ALIAS')
+                keyPassword System.getenv('INY_KEY_PASSWORD')
+            }
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+            enableV4Signing false
+        }
+        debug {
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+            enableV4Signing false
+        }
+    }
+    buildTypes {
+        release {
+            if (System.getenv('INY_KEYSTORE')) signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
+    }
+    packaging { resources { excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/INDEX.LIST', 'META-INF/*.kotlin_module'] } }
+    lint { disable 'UnsafeOptInUsageError' }
+}
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'com.google.android.gms:play-services-auth:21.3.0'
+    implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.27.1'
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
+    implementation 'androidx.media3:media3-ui:1.4.1'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.5'
+}

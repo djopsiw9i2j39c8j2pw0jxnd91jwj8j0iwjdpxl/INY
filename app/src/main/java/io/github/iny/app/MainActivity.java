@@ -153,7 +153,7 @@ public final class MainActivity extends Activity {
                 if ("play".equals(op)) { play(a,id,reply); return; }
                 if ("stop".equals(op)) { stopPlayer(); respond(reply,id,new JSONObject(),null); return; }
                 if ("place".equals(op)) { layoutPlayer(a.optJSONObject("rect")); respond(reply,id,new JSONObject(),null); return; }
-                if ("immersive".equals(op)) { final boolean on=a.optBoolean("on"); runOnUiThread(()->setImmersive(on)); respond(reply,id,new JSONObject(),null); return; }
+                if ("immersive".equals(op)) { final boolean on=a.optBoolean("on"); runOnUiThread(()->setShortImmersive(on)); respond(reply,id,new JSONObject(),null); return; }
                 if ("shortInfo".equals(op)) { runOnUiThread(()->updateShortInfo(a)); respond(reply,id,new JSONObject(),null); return; }
                 if ("speed".equals(op)) { setSpeed((float)a.optDouble("value",1)); respond(reply,id,new JSONObject(),null); return; }
                 workers.execute(()->{
@@ -550,7 +550,7 @@ public final class MainActivity extends Activity {
         syncOverlay();
     }
     @SuppressWarnings("deprecation")
-    private void setImmersive(boolean on){
+    private void setShortImmersive(boolean on){
         if(Build.VERSION.SDK_INT>=30){
             WindowInsetsController c=getWindow().getInsetsController();
             if(c!=null){if(on){c.hide(WindowInsets.Type.systemBars());c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);}else c.show(WindowInsets.Type.systemBars());}

@@ -54,3 +54,6 @@ header .brand span{font-size:19px;font-weight:800}#chips:empty{display:none}
 .short-watch #playerBox{position:fixed!important;inset:0;width:auto;height:auto;max-width:none;max-height:none;aspect-ratio:auto;border-radius:0;margin:0;z-index:1}
 .short-watch .watch-body{display:none}
 .short-watch .watch-top{position:fixed;top:0;left:0;right:0;z-index:5;background:transparent}
+.grid>*{min-width:0}
+.shorts-shelf{min-width:0;max-width:100%;overflow:hidden}
+.shorts-shelf h2{padding:0 12px}.shelf-row{padding:0 12px 6px}

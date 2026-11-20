@@ -139,6 +139,7 @@ public final class MainActivity extends Activity {
                 if(args==null) args=new JSONObject();
                 final JSONObject a=args;
                 if("authorize".equals(op)){ authorize(id,reply,a.optBoolean("upload"));return; }
+                if("webLogin".equals(op)){ webLogin(id,reply);return; }
                 if("upload".equals(op)){ chooseUpload(id,a,reply);return; }
                 if("copy".equals(op)){
                     ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("INY",a.optString("text").substring(0,Math.min(30000,a.optString("text").length()))));
@@ -192,10 +193,11 @@ public final class MainActivity extends Activity {
     }
     private boolean hasToken(){return !token.isEmpty() && SystemClock.elapsedRealtime()<tokenUntil;}
     private JSONObject dispatch(String op,JSONObject a) throws Exception {
+        if(YtWeb.handles(op)&&(YtWeb.loggedIn()||("playlistVideos".equals(op)&&!hasToken())))return YtWeb.handle(op,a);
         switch(op){
             case "config": return new JSONObject().put("versionName",BuildConfig.VERSION_NAME).put("versionCode",BuildConfig.VERSION_CODE)
-                .put("package",BuildConfig.APPLICATION_ID).put("authorized",hasToken()).put("sha1",certificateSha1());
-            case "logout":token="";tokenUntil=0;return new JSONObject();
+                .put("package",BuildConfig.APPLICATION_ID).put("authorized",hasToken()||YtWeb.loggedIn()).put("sha1",certificateSha1());
+            case "logout":token="";tokenUntil=0;YtWeb.logout();return new JSONObject();
             case "update":return checkUpdate();
             case "download":return download(a);
             case "popular":return Yt.home(a.optString("pageToken"));
@@ -294,7 +296,7 @@ public final class MainActivity extends Activity {
         authReply=null;authId=null;
     }
     private void chooseUpload(String id,JSONObject a,JavaScriptReplyProxy reply){
-        if(!hasToken()){respond(reply,id,null,"AUTH_REQUIRED: Cấp quyền Google trước khi tải lên.");return;}
+        if(!hasToken()){respond(reply,id,null,YtWeb.loggedIn()?"Tải video lên cần Google OAuth (chưa hỗ trợ khi đăng nhập bằng tài khoản trong app).":"AUTH_REQUIRED: Đăng nhập trước khi tải lên.");return;}
         if(uploadReply!=null){respond(reply,id,null,"Một video đang được tải lên.");return;}
         uploadId=id;uploadReply=reply;uploadMetadata=a;
         try{startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("video/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),UPLOAD);}
@@ -563,6 +565,48 @@ public final class MainActivity extends Activity {
             if(c!=null){if(on){c.hide(WindowInsets.Type.systemBars());c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);}else c.show(WindowInsets.Type.systemBars());}
         }else getWindow().getDecorView().setSystemUiVisibility(on?(View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_LAYOUT_STABLE):View.SYSTEM_UI_FLAG_VISIBLE);
     }
+    private LinearLayout loginView;
+    private WebView loginWeb;
+    private JavaScriptReplyProxy loginReply;
+    private String loginId;
+    private static final String LOGIN_URL="https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue="+Uri.encode("https://www.youtube.com/signin?action_handle_signin=true&app=desktop&hl=vi&next=https%3A%2F%2Fm.youtube.com%2F");
+    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    private void webLogin(String id,JavaScriptReplyProxy reply){
+        runOnUiThread(()->{
+            if(loginView!=null){respond(reply,id,null,"Màn hình đăng nhập đang mở.");return;}
+            loginReply=reply;loginId=id;
+            LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setBackgroundColor(Color.rgb(16,16,18));
+            LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(14),dp(10),dp(14),dp(10));
+            TextView title=new TextView(this);title.setText("Đăng nhập YouTube");title.setTextColor(Color.WHITE);title.setTextSize(16);title.setTypeface(null,android.graphics.Typeface.BOLD);
+            TextView close=new TextView(this);close.setText("Đóng");close.setTextColor(Color.WHITE);close.setTextSize(15);close.setPadding(dp(12),dp(6),dp(12),dp(6));
+            close.setOnClickListener(v->finishWebLogin(false));
+            bar.addView(title,new LinearLayout.LayoutParams(0,-2,1f));bar.addView(close);
+            WebView w=new WebView(this);
+            WebSettings ws=w.getSettings();ws.setJavaScriptEnabled(true);ws.setDomStorageEnabled(true);
+            ws.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36");
+            CookieManager cm=CookieManager.getInstance();cm.setAcceptCookie(true);cm.setAcceptThirdPartyCookies(w,true);
+            w.setWebViewClient(new WebViewClient(){
+                @Override public void onPageFinished(WebView view,String url){
+                    CookieManager.getInstance().flush();
+                    try{String h=Uri.parse(url).getHost();if(h!=null&&h.endsWith("youtube.com")&&YtWeb.loggedIn())finishWebLogin(true);}catch(Exception ignored){}
+                }
+            });
+            box.addView(bar);box.addView(w,new LinearLayout.LayoutParams(-1,0,1f));
+            root.addView(box,new FrameLayout.LayoutParams(-1,-1));
+            loginView=box;loginWeb=w;
+            w.loadUrl(LOGIN_URL);
+        });
+    }
+    private void finishWebLogin(boolean ok){
+        if(loginView==null)return;
+        root.removeView(loginView);
+        if(loginWeb!=null){loginWeb.stopLoading();loginWeb.destroy();}
+        loginView=null;loginWeb=null;
+        JavaScriptReplyProxy r=loginReply;String id=loginId;loginReply=null;loginId=null;
+        if(r==null)return;
+        if(ok){CookieManager.getInstance().flush();try{respond(r,id,new JSONObject().put("authorized",true),null);}catch(JSONException e){respond(r,id,new JSONObject(),null);}}
+        else respond(r,id,null,"Đã đóng màn hình đăng nhập.");
+    }
     private void stopPlayer(){
         ++playSequence;
         if(fullscreen)setFullscreen(false);
@@ -579,7 +623,7 @@ public final class MainActivity extends Activity {
         if(fullView==null)return;root.removeView(fullView);fullView=null;web.setVisibility(View.VISIBLE);if(fullCallback!=null)fullCallback.onCustomViewHidden();fullCallback=null;
         if(Build.VERSION.SDK_INT>=30)getWindow().getInsetsController().show(WindowInsets.Type.systemBars());
     }
-    @Override public void onBackPressed(){if(fullscreen){setFullscreen(false);return;}if(fullView!=null)hideFullscreen();else web.evaluateJavascript("window.onNativeBack&&onNativeBack()",null);}
+    @Override public void onBackPressed(){if(loginView!=null){if(loginWeb!=null&&loginWeb.canGoBack())loginWeb.goBack();else finishWebLogin(false);return;}if(fullscreen){setFullscreen(false);return;}if(fullView!=null)hideFullscreen();else web.evaluateJavascript("window.onNativeBack&&onNativeBack()",null);}
     @Override protected void onPause(){super.onPause();if(player!=null)player.pause();if(web!=null){web.evaluateJavascript("window.pausePlayer&&pausePlayer()",null);web.onPause();}}
     @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();}
     @Override protected void onDestroy(){workers.shutdownNow();if(player!=null){player.release();player=null;}if(web!=null){web.stopLoading();web.destroy();web=null;}super.onDestroy();}

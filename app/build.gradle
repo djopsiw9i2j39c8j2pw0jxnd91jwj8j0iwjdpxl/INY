@@ -13,13 +13,13 @@ android {
     buildFeatures { buildConfig true }
     signingConfigs {
         release {
-            def ks = System.getenv('INY_KEYSTORE')
-            if (ks) {
-                storeFile file(ks)
-                storePassword System.getenv('INY_STORE_PASSWORD')
-                keyAlias System.getenv('INY_KEY_ALIAS')
-                keyPassword System.getenv('INY_KEY_PASSWORD')
-            }
+            // Khoa ky co dinh: dung secrets neu co, neu khong dung keystore/iny-release.jks trong repo
+            // => moi ban build deu cung chu ky, co the cai de/cap nhat len nhau.
+            def ks = System.getenv('INY_KEYSTORE') ?: file('../keystore/iny-release.jks').path
+            storeFile file(ks)
+            storePassword System.getenv('INY_STORE_PASSWORD') ?: 'MGUonf87FnQ-JV6R6UGtehQc'
+            keyAlias System.getenv('INY_KEY_ALIAS') ?: 'iny'
+            keyPassword System.getenv('INY_KEY_PASSWORD') ?: 'MGUonf87FnQ-JV6R6UGtehQc'
             enableV1Signing true
             enableV2Signing true
             enableV3Signing true
@@ -34,7 +34,7 @@ android {
     }
     buildTypes {
         release {
-            if (System.getenv('INY_KEYSTORE')) signingConfig signingConfigs.release
+            signingConfig signingConfigs.release
             minifyEnabled false
         }
     }

@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -51,7 +52,7 @@ final class YtWeb {
     private static String hash(String label, String sid, long ts) throws Exception {
         byte[] d = MessageDigest.getInstance("SHA-1").digest((ts + " " + sid + " " + ORIGIN).getBytes(StandardCharsets.UTF_8));
         StringBuilder b = new StringBuilder();
-        for (byte v : d) b.append(String.format("%02x", v & 255));
+        for (byte v : d) b.append(String.format(Locale.US, "%02x", v & 255));
         return label + " " + ts + "_" + b;
     }
     private static String authorization() throws Exception {
@@ -112,10 +113,18 @@ final class YtWeb {
             int code = c.getResponseCode();
             InputStream s = code >= 400 ? c.getErrorStream() : c.getInputStream();
             String text = s == null ? "" : new String(read(s, 8_000_000), StandardCharsets.UTF_8);
-            if (code == 401 || code == 403) throw new IOException("AUTH_REQUIRED: Phiên đăng nhập YouTube đã hết hạn hoặc bị từ chối. Hãy đăng nhập lại.");
-            if (code >= 400) throw new IOException("YouTube trả về lỗi HTTP " + code + ".");
+            if (code == 401) throw new IOException("AUTH_REQUIRED: Phiên đăng nhập YouTube đã hết hạn. Hãy đăng nhập lại.");
+            if (code >= 400) throw new IOException("YouTube từ chối (HTTP " + code + ")" + reason(text));
             return text.isEmpty() ? new JSONObject() : new JSONObject(text);
         } finally { c.disconnect(); }
+    }
+
+    /** Lý do YouTube trả kèm khi báo lỗi, để người dùng biết lỗi thật chứ không chỉ mã HTTP. */
+    private static String reason(String body) {
+        try {
+            String m = new JSONObject(body).getJSONObject("error").optString("message");
+            return m.isEmpty() ? "." : ": " + m;
+        } catch (Exception e) { return "."; }
     }
 
     // ---- json helpers ----

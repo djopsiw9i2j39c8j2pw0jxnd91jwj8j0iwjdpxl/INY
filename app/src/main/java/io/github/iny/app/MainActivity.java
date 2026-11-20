@@ -157,6 +157,7 @@ public final class MainActivity extends Activity {
                 if ("place".equals(op)) { layoutPlayer(a.optJSONObject("rect")); respond(reply,id,new JSONObject(),null); return; }
                 if ("immersive".equals(op)) { final boolean on=a.optBoolean("on"); runOnUiThread(()->setShortImmersive(on)); respond(reply,id,new JSONObject(),null); return; }
                 if ("shortInfo".equals(op)) { runOnUiThread(()->updateShortInfo(a)); respond(reply,id,new JSONObject(),null); return; }
+                if ("seek".equals(op)) { final long ms=(long)(a.optDouble("sec",0)*1000); runOnUiThread(()->{if(player!=null)player.seekTo(ms);}); respond(reply,id,new JSONObject(),null); return; }
                 if ("speed".equals(op)) { setSpeed((float)a.optDouble("value",1)); respond(reply,id,new JSONObject(),null); return; }
                 workers.execute(()->{
                     try{respond(reply,id,dispatch(op,a),null);}catch(Exception e){respond(reply,id,null,safeMessage(e));}

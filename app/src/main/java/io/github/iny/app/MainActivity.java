@@ -12,6 +12,7 @@ import android.os.*;
 import android.provider.OpenableColumns;
 import android.view.*;
 import android.webkit.*;
+import android.webkit.CookieManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -91,7 +92,7 @@ public final class MainActivity extends Activity {
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setMediaPlaybackRequiresUserGesture(true);
         s.setSupportMultipleWindows(false);
-        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.setBackgroundColor(Color.rgb(16,16,18));
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req) {

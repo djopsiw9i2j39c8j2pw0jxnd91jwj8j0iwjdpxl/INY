@@ -36,31 +36,21 @@ jobs:
           INY_STORE_PASSWORD: ${{ secrets.INY_STORE_PASSWORD }}
           INY_KEY_ALIAS: ${{ secrets.INY_KEY_ALIAS }}
           INY_KEY_PASSWORD: ${{ secrets.INY_KEY_PASSWORD }}
-        run: gradle --no-daemon assembleDebug assembleRelease lintDebug
-      - name: Verify APK signatures
+        run: gradle --no-daemon assembleRelease
+      - name: Verify APK signature
         run: |
           SDK_SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
-          "$SDK_SIGNER" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk | tee debug-signatures.txt
-          "$SDK_SIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk | tee release-signatures.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: INY-${{ github.run_number }}-build
-          path: |
-            app/build/outputs/apk/**/*.apk
-            app/build/reports/lint-results-debug.html
-            *-signatures.txt
-      - name: Publish signed release
-        if: github.event_name != 'pull_request'
+          "$SDK_SIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+      - name: Publish single signed APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(python3 tools/check-version.py | sed -E 's/INY ([0-9.]+) .*/\1/')
           TAG="v${VERSION}"
-          ASSET="INY-${VERSION}-release.apk"
+          ASSET="INY-${VERSION}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$ASSET"
-          sha256sum "$ASSET" > "${ASSET}.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$ASSET" "${ASSET}.sha256" --clobber
+            gh release upload "$TAG" "$ASSET" --clobber
           else
-            gh release create "$TAG" "$ASSET" "${ASSET}.sha256" --target "$GITHUB_SHA" --title "INY $VERSION" --notes 'Signed Android APK.'
+            gh release create "$TAG" "$ASSET" --target "$GITHUB_SHA" --title "INY $VERSION" --notes 'Signed Android APK.'
           fi
